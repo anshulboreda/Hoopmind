@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: hoopmind-nba-player-guesser
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app
+    plan: free
