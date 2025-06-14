@@ -1,16 +1,19 @@
+import json
+import os
 from flask import Flask, render_template, request, session, redirect, url_for, jsonify
 import random
-import json
 from datetime import datetime
-from nba_api.stats.static import players
-from nba_api.stats.endpoints import commonplayerinfo, playercareerstats
-import os
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'dev')
 
-# Load all active players once
-ALL_PLAYERS = [p for p in players.get_players() if p.get('is_active')]
+# Load all cached data
+with open(os.path.join(os.path.dirname(__file__), 'players.json')) as f:
+    ALL_PLAYERS = json.load(f)
+with open(os.path.join(os.path.dirname(__file__), 'player_details.json')) as f:
+    PLAYER_DETAILS = json.load(f)
+with open(os.path.join(os.path.dirname(__file__), 'player_stats.json')) as f:
+    PLAYER_STATS = json.load(f)
 
 # Helper to get conference/division from TEAM_ABBREVIATION
 def get_conf_div(team_abbr):
@@ -27,30 +30,24 @@ def get_conf_div(team_abbr):
     return nba_teams.get(team_abbr, ('N/A', 'N/A'))
 
 def get_player_info(player_id):
-    info = commonplayerinfo.CommonPlayerInfo(player_id=player_id).get_normalized_dict()
-    return info['CommonPlayerInfo'][0] if info['CommonPlayerInfo'] else None
+    return PLAYER_DETAILS.get(str(player_id), {})
 
 def get_player_clue(player_id):
+    stats = PLAYER_STATS.get(str(player_id), {})
+    if not stats:
+        return "No stats available."
     try:
-        stats = playercareerstats.PlayerCareerStats(player_id=player_id).get_normalized_dict()
-        if 'CareerStats' in stats and stats['CareerStats']:
-            career = stats['CareerStats'][0]
-        elif 'CareerTotalsRegularSeason' in stats and stats['CareerTotalsRegularSeason']:
-            career = stats['CareerTotalsRegularSeason'][0]
-        else:
-            return "No stats available."
-        gp = float(career.get('GP', 0))
-        ppg = float(career.get('PTS', 0)) / gp if gp else 0
-        rpg = float(career.get('REB', 0)) / gp if gp else 0
-        apg = float(career.get('AST', 0)) / gp if gp else 0
+        gp = float(stats.get('GP', 0))
+        ppg = float(stats.get('PTS', 0)) / gp if gp else 0
+        rpg = float(stats.get('REB', 0)) / gp if gp else 0
+        apg = float(stats.get('AST', 0)) / gp if gp else 0
         return f"Career averages - PPG: {ppg:.1f}, RPG: {rpg:.1f}, APG: {apg:.1f}"
-    except Exception as e:
-        return f"Clue unavailable."
+    except Exception:
+        return "Clue unavailable."
 
 def compare_guess(guessed, target):
     guessed_conf, guessed_div = get_conf_div(guessed.get('TEAM_ABBREVIATION'))
     target_conf, target_div = get_conf_div(target.get('TEAM_ABBREVIATION'))
-    
     # Height arrow logic
     def to_inches(h):
         if isinstance(h, int): return h
@@ -82,17 +79,17 @@ def compare_guess(guessed, target):
     except Exception:
         weight_arrow = ''
     feedback = {
-        'name': guessed['DISPLAY_FIRST_LAST'],
-        'team': guessed['TEAM_ABBREVIATION'] or 'N/A',
-        'position': guessed['POSITION'] or 'N/A',
-        'height': guessed['HEIGHT'] or 'N/A',
-        'weight': int(guessed['WEIGHT']) if guessed['WEIGHT'] else 0,
+        'name': guessed.get('DISPLAY_FIRST_LAST', guessed.get('full_name', 'Unknown')),
+        'team': guessed.get('TEAM_ABBREVIATION', 'N/A'),
+        'position': guessed.get('POSITION', 'N/A'),
+        'height': guessed.get('HEIGHT', 'N/A'),
+        'weight': int(guessed.get('WEIGHT', 0)) if guessed.get('WEIGHT') else 0,
         'conference': guessed_conf,
         'division': guessed_div,
-        'team_match': guessed['TEAM_ID'] == target['TEAM_ID'],
-        'position_match': guessed['POSITION'] and target['POSITION'] and guessed['POSITION'].lower() == target['POSITION'].lower(),
-        'height_match': guessed['HEIGHT'] == target['HEIGHT'],
-        'weight_match': abs(int(guessed['WEIGHT'] or 0) - int(target['WEIGHT'] or 0)) <= 10 if guessed['WEIGHT'] and target['WEIGHT'] else False,
+        'team_match': guessed.get('TEAM_ID') == target.get('TEAM_ID'),
+        'position_match': guessed.get('POSITION') and target.get('POSITION') and guessed.get('POSITION').lower() == target.get('POSITION').lower(),
+        'height_match': guessed.get('HEIGHT') == target.get('HEIGHT'),
+        'weight_match': abs(int(guessed.get('WEIGHT') or 0) - int(target.get('WEIGHT') or 0)) <= 10 if guessed.get('WEIGHT') and target.get('WEIGHT') else False,
         'conference_match': guessed_conf == target_conf and guessed_conf != 'N/A',
         'division_match': guessed_div == target_div and guessed_div != 'N/A',
         'height_arrow': height_arrow,
@@ -101,47 +98,7 @@ def compare_guess(guessed, target):
     return feedback
 
 def check_win(guessed, target):
-    return guessed['DISPLAY_FIRST_LAST'].lower() == target['DISPLAY_FIRST_LAST'].lower()
-
-def get_silhouette_url(person_id):
-    from PIL import Image
-    import requests
-    from io import BytesIO
-    import base64
-    resolutions = [
-        None,  # 0: blank
-        '52x40',  # 1: very blurry
-        '104x76', # 2: blurry
-        '260x190', # 3: low-res
-        '520x380', # 4: mid-res
-        '1040x760' # 5: full-res
-    ]
-    res = resolutions[min(session.get('reveal_level', 0), len(resolutions)-1)]
-    if res is None:
-        return ''
-    url = f"https://cdn.nba.com/headshots/nba/latest/{res}/{person_id}.png"
-    try:
-        resp = requests.get(url, timeout=3)
-        if resp.status_code == 200:
-            img = Image.open(BytesIO(resp.content)).convert("RGBA")
-            gray = img.convert("L")
-            mask = gray.point(lambda x: 0 if x > 40 else 255, mode='1')
-            silhouette = Image.new("RGBA", img.size, (255,255,255,0))
-            for y in range(img.size[1]):
-                for x in range(img.size[0]):
-                    if mask.getpixel((x, y)) == 255:
-                        silhouette.putpixel((x, y), (0,0,0,255))
-                    else:
-                        silhouette.putpixel((x, y), (255,255,255,0))
-            buf = BytesIO()
-            silhouette.save(buf, format='PNG')
-            buf.seek(0)
-            b64 = base64.b64encode(buf.read()).decode('utf-8')
-            return f"data:image/png;base64,{b64}"
-        else:
-            return ''
-    except Exception:
-        return ''
+    return guessed.get('DISPLAY_FIRST_LAST', guessed.get('full_name', '')).lower() == target.get('DISPLAY_FIRST_LAST', target.get('full_name', '')).lower()
 
 @app.route('/', methods=['GET', 'POST'])
 def index():
@@ -154,8 +111,8 @@ def index():
     target = session['target_player']
     guesses = session.get('guesses', [])
     message = ''
-    clue = get_player_clue(target['PERSON_ID'])
-    silhouette_url = get_silhouette_url(target['PERSON_ID'])
+    clue = get_player_clue(target.get('PERSON_ID', target.get('id')))
+    silhouette_url = ''  # You can add silhouette logic here if needed
     if request.method == 'POST':
         guess_name = request.form['guess'].strip()
         found = [p for p in ALL_PLAYERS if guess_name.lower() in p['full_name'].lower()]
@@ -170,14 +127,13 @@ def index():
                 guesses.append(feedback)
                 session['guesses'] = guesses
                 if check_win(guessed, target):
-                    message = f'🎉 Correct! The player was {target["DISPLAY_FIRST_LAST"]}!'
+                    message = f'🎉 Correct! The player was {target.get("DISPLAY_FIRST_LAST", target.get("full_name", ""))}!'
                     session.pop('target_player')
                 elif len(guesses) >= 6:
-                    message = f'❌ Game Over! The player was {target["DISPLAY_FIRST_LAST"]}!'
+                    message = f'❌ Game Over! The player was {target.get("DISPLAY_FIRST_LAST", target.get("full_name", ""))}!'
                     session.pop('target_player')
                 else:
                     session['reveal_level'] = session.get('reveal_level', 0) + 1
-                silhouette_url = get_silhouette_url(target['PERSON_ID'])
     return render_template('index.html', guesses=guesses, message=message, clue=clue, silhouette_url=silhouette_url)
 
 @app.route('/reset')
