@@ -100,8 +100,17 @@ def compare_guess(guessed, target):
 def check_win(guessed, target):
     return guessed.get('DISPLAY_FIRST_LAST', guessed.get('full_name', '')).lower() == target.get('DISPLAY_FIRST_LAST', target.get('full_name', '')).lower()
 
+@app.route('/rules', methods=['GET', 'POST'])
+def rules():
+    if request.method == 'POST':
+        return redirect(url_for('index'))
+    return render_template('rules.html')
+
 @app.route('/', methods=['GET', 'POST'])
 def index():
+    if 'seen_rules' not in session:
+        session['seen_rules'] = True
+        return redirect(url_for('rules'))
     if 'target_player' not in session:
         player = random.choice(ALL_PLAYERS)
         info = get_player_info(player['id'])
