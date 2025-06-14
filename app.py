@@ -100,6 +100,18 @@ def compare_guess(guessed, target):
 def check_win(guessed, target):
     return guessed.get('DISPLAY_FIRST_LAST', guessed.get('full_name', '')).lower() == target.get('DISPLAY_FIRST_LAST', target.get('full_name', '')).lower()
 
+def get_streak():
+    return session.get('streak', 0)
+
+def update_streak(won):
+    streak = session.get('streak', 0)
+    if won:
+        streak += 1
+    else:
+        streak = 0
+    session['streak'] = streak
+    return streak
+
 @app.route('/rules', methods=['GET', 'POST'])
 def rules():
     if request.method == 'POST':
@@ -121,7 +133,10 @@ def index():
     guesses = session.get('guesses', [])
     message = ''
     clue = get_player_clue(target.get('PERSON_ID', target.get('id')))
-    silhouette_url = ''  # You can add silhouette logic here if needed
+    silhouette_url = ''
+    streak = get_streak()
+    max_attempts = 6
+    progress = int((len(guesses) / max_attempts) * 100)
     if request.method == 'POST':
         guess_name = request.form['guess'].strip()
         found = [p for p in ALL_PLAYERS if guess_name.lower() in p['full_name'].lower()]
@@ -137,13 +152,17 @@ def index():
                 session['guesses'] = guesses
                 if check_win(guessed, target):
                     message = f'🎉 Correct! The player was {target.get("DISPLAY_FIRST_LAST", target.get("full_name", ""))}!'
+                    update_streak(True)
                     session.pop('target_player')
-                elif len(guesses) >= 6:
+                elif len(guesses) >= max_attempts:
                     message = f'❌ Game Over! The player was {target.get("DISPLAY_FIRST_LAST", target.get("full_name", ""))}!'
+                    update_streak(False)
                     session.pop('target_player')
                 else:
                     session['reveal_level'] = session.get('reveal_level', 0) + 1
-    return render_template('index.html', guesses=guesses, message=message, clue=clue, silhouette_url=silhouette_url)
+                streak = get_streak()
+                progress = int((len(guesses) / max_attempts) * 100)
+    return render_template('index.html', guesses=guesses, message=message, clue=clue, silhouette_url=silhouette_url, streak=streak, progress=progress, max_attempts=max_attempts)
 
 @app.route('/reset')
 def reset():

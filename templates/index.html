@@ -29,6 +29,19 @@
         <img id="silhouette" class="silhouette" src="{{ silhouette_url }}" alt="Player silhouette" style="display:{{ 'block' if silhouette_url else 'none' }};" />
         <div class="clue">{{ clue }}</div>
         {% if message %}<div class="message">{{ message }}</div>{% endif %}
+        
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px;">
+            <div style="font-size: 1.1em; color: #FDB927;">
+                <b>Streak:</b> <span id="streak">{{ streak }}</span> <span style="font-size:1.2em;">🔥</span>
+            </div>
+            <div style="flex: 1; margin-left: 24px;">
+                <div style="background: #0B162A; border-radius: 8px; height: 18px; width: 100%; box-shadow: 0 1px 4px #0004;">
+                    <div style="background: linear-gradient(90deg, #FDB927, #C9082A); height: 100%; border-radius: 8px; width: {{ progress }}%; transition: width 0.4s;"></div>
+                </div>
+                <div style="font-size: 0.95em; color: #FDB927; text-align: right; margin-top: 2px;">{{ len(guesses) }}/{{ max_attempts }} guesses</div>
+            </div>
+        </div>
+
         <div class="guesses">
             <b>Guesses:</b>
             {% for guess in guesses %}
