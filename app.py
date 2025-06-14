@@ -50,7 +50,38 @@ def get_player_clue(player_id):
 def compare_guess(guessed, target):
     guessed_conf, guessed_div = get_conf_div(guessed.get('TEAM_ABBREVIATION'))
     target_conf, target_div = get_conf_div(target.get('TEAM_ABBREVIATION'))
-    return {
+    
+    # Height arrow logic
+    def to_inches(h):
+        if isinstance(h, int): return h
+        if not h or h == 'N/A': return None
+        if '-' in h:
+            ft, inch = h.split('-')
+            return int(ft)*12 + int(inch)
+        return int(h)
+    g_h = to_inches(guessed.get('HEIGHT'))
+    t_h = to_inches(target.get('HEIGHT'))
+    height_arrow = ''
+    if g_h is not None and t_h is not None:
+        if g_h < t_h:
+            height_arrow = '↑'
+        elif g_h > t_h:
+            height_arrow = '↓'
+    # Weight arrow logic
+    guessed_weight = guessed.get('WEIGHT')
+    target_weight = target.get('WEIGHT')
+    weight_arrow = ''
+    try:
+        gw = int(guessed_weight) if guessed_weight else None
+        tw = int(target_weight) if target_weight else None
+        if gw is not None and tw is not None and abs(gw - tw) > 10:
+            if gw < tw:
+                weight_arrow = '↑'
+            elif gw > tw:
+                weight_arrow = '↓'
+    except Exception:
+        weight_arrow = ''
+    feedback = {
         'name': guessed['DISPLAY_FIRST_LAST'],
         'team': guessed['TEAM_ABBREVIATION'] or 'N/A',
         'position': guessed['POSITION'] or 'N/A',
@@ -64,7 +95,10 @@ def compare_guess(guessed, target):
         'weight_match': abs(int(guessed['WEIGHT'] or 0) - int(target['WEIGHT'] or 0)) <= 10 if guessed['WEIGHT'] and target['WEIGHT'] else False,
         'conference_match': guessed_conf == target_conf and guessed_conf != 'N/A',
         'division_match': guessed_div == target_div and guessed_div != 'N/A',
+        'height_arrow': height_arrow,
+        'weight_arrow': weight_arrow,
     }
+    return feedback
 
 def check_win(guessed, target):
     return guessed['DISPLAY_FIRST_LAST'].lower() == target['DISPLAY_FIRST_LAST'].lower()
